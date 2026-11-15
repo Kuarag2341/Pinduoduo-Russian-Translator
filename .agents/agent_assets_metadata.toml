@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "wKTrehmVuYmsk6EmHFflW"
+uri = "file://generated-artifacts/pinduoduo-russian-translator-source.zip"
+type = "unspecified"
+title = "Pinduoduo Russian Translator — исходники Android"
+description = "ZIP с Kotlin/Jetpack Compose проектом для Android Studio. APK в архив не входит; для сборки нужны Android SDK 35 и JDK 17."
+logical_id = "4680d006-1bd1-4313-8ac8-60af5daa1f0c"
+content_hash = "sha256:14a8a118d36980626a365a37ae553910e13c00275ab28654086623e07c13972d"
+size = 18713
+mtime_ms = 1794775340198
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:2d59d05e-4a40-48cf-bc7f-9826ed783e39/4680d006-1bd1-4313-8ac8-60af5daa1f0c/e8368d97-5644-4a04-b365-d63fb0789a91"
+storage_version_token = "1794775353484862"
+content_type = "application/octet-stream"
