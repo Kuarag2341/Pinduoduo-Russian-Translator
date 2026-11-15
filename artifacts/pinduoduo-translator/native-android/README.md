@@ -1,23 +1,37 @@
-# Android MVP
+# Pinduoduo Russian Browser (Android)
 
-This folder contains the installable Android application source. It targets Android 10 (API 29) and newer and uses Kotlin, Jetpack Compose, MediaProjection, a touch-through overlay, ML Kit Chinese OCR, and on-device Chinese-to-Russian translation.
+This native Android app opens Pinduoduo's live mobile shopping site in Android WebView. It translates Chinese DOM text in place with the on-device ML Kit Chinese-to-Russian model and the existing local translation cache. It does not create product, price, or translation mock data.
 
-For high-confidence OCR lines with a clean, mostly uniform background around the text, the overlay paints an opaque color patch inside the recognized text bounds and renders Russian there with adaptive sizing and wrapping. If the background is not confidently uniform, it uses the earlier semi-opaque label style. Lines with missing, low-confidence, implausible, or overlapping bounds are skipped rather than risking covering nearby controls; lines containing digits or currency symbols are also skipped to protect prices and numeric labels. Screen frames are reprocessed during scrolling, and the capture surface is resized when the display dimensions change.
+## Features
 
-## Build a debug APK
+- Starts at `https://mobile.yangkeduo.com/`, the live mobile shopping site.
+- WebView JavaScript, DOM storage, cookies, third-party cookies, and normal site navigation are enabled for shopping flows.
+- Back, forward, home, refresh, loading progress, current host, SSL errors, safe browsing, and external app links are handled.
+- A `MutationObserver` translates initial and dynamically inserted page text, including content added while scrolling; it also translates text-node-backed search placeholders and accessible labels.
+- The AndroidX WebMessageListener bridge is origin-restricted to Pinduoduo/Yangkeduo domains and accepts messages only from the main frame.
+- Existing ML Kit translation and local cache are used. The first translation may need an internet connection to download Google's Chinese-to-Russian model; later translation is on-device.
+- Numeric values, currencies, and common product specification tokens are preserved verbatim while surrounding Chinese text is translated. Images and non-text page elements are left untouched.
 
-Open `native-android` in Android Studio with Android SDK 35 and JDK 17 installed, then run **Build > Build APK(s)**. The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
+## Build locally
 
-If Gradle is installed separately, run `gradle :app:assembleDebug` from this directory.
+Use Android Studio with JDK 17 and Android SDK 35. The project uses Android Gradle Plugin 8.7.3, which requires Gradle 8.9. If Gradle is installed:
 
-The current Replit build environment does not include an Android SDK, JDK, or Gradle installation, so it cannot produce or validate an APK here. The source is ready for an Android Studio build.
+```sh
+gradle :app:assembleDebug
+```
 
-## Privacy and permissions
+The debug APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
 
-- Android asks for screen-capture permission each time translation starts.
-- Overlay permission is requested only when the user presses the start button.
-- Screenshots are processed in memory on the device and are not uploaded.
-- ML Kit downloads its Chinese-to-Russian translation model on first use; the model then works offline.
-- The translation windows use `FLAG_NOT_TOUCHABLE`, so taps and gestures continue to reach Pinduoduo.
-- Text replacement is a visual overlay, not a modification of Pinduoduo's native UI. Complex backgrounds and uncertain OCR boxes use the previous label style or are skipped.
-- Translation cache is stored locally and is limited to 1,000 entries.
+## GitHub Actions
+
+`.github/workflows/android-apk.yml` installs JDK 17, Gradle 8.9, and Android SDK 35, builds the debug APK, and uploads it as a workflow artifact. Run it with **Actions → Android APK → Run workflow**, or push a change affecting the Android project.
+
+## Site access and limitations
+
+- A network probe using an Android-style user agent received HTTP 200 and a populated shopping page from `mobile.yangkeduo.com`. This confirms the public endpoint responded to the probe; it is not a test inside Android WebView or on a phone.
+- `m.pinduoduo.com/ru/` currently serves corporate information, not the marketplace, so the app opens the live mobile shopping domain instead.
+- The site controls account availability, region, captcha/anti-bot checks, login, inventory, delivery, checkout, and accepted payment methods. This app cannot guarantee that Pinduoduo permits WebView login or that every order/payment path works; some flows may require Pinduoduo, WeChat, Alipay, or another installed app.
+- Translation applies to readable DOM text and selected text attributes only. Text embedded in images, canvas, video, or cross-origin iframes is not translated. Layout can shift when Russian text is longer, and the site may overwrite DOM changes during client-side rerenders.
+- If the installed Android System WebView lacks the origin-restricted message-listener feature, the real site still opens but automatic translation is disabled with a status message.
+- SSL failures are canceled rather than bypassed. Non-HTTP links such as payment/app schemes are handed to Android; behavior depends on installed apps and the destination.
+- This workspace has no local JDK, Gradle, Android SDK, emulator, or device, so the Android APK and actual WebView checkout/login flows cannot be tested here. GitHub Actions is configured but has not yet run.

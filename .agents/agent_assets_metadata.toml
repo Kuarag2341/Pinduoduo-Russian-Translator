@@ -14,3 +14,17 @@ mtime_ms = 1794779592032
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:2d59d05e-4a40-48cf-bc7f-9826ed783e39/4680d006-1bd1-4313-8ac8-60af5daa1f0c/9123a2a7-5706-4f45-8e29-6c86f477ef8e"
 storage_version_token = "1794779605419292"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "caxm5_Z-CLkDRhC0wyKMH"
+uri = "file://generated-artifacts/pinduoduo-russian-browser-source.zip"
+type = "unspecified"
+title = "Pinduoduo Russian Browser — Android source"
+description = "ZIP содержит нативный Android WebView-браузер, динамический перевод DOM-текста через ML Kit и workflow GitHub Actions для сборки debug APK. APK ещё не собран: локально отсутствуют JDK, Gradle и Android SDK."
+logical_id = "7f7202a8-7292-4773-a1ff-ad0d82c55741"
+content_hash = "sha256:c3f2e7827a7fddb3893ad8b7108191074615b804f1d7a9ba27d8fdd371bce79b"
+size = 18857
+mtime_ms = 1794781948294
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:2d59d05e-4a40-48cf-bc7f-9826ed783e39/7f7202a8-7292-4773-a1ff-ad0d82c55741/18f325dc-7bd1-4077-8ce3-b77f9100fdaf"
+storage_version_token = "1794781959800334"
+content_type = "application/octet-stream"

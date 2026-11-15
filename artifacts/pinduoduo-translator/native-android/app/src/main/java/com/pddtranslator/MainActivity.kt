@@ -1,55 +1,51 @@
 package com.pddtranslator
 
-import android.app.Activity
-import android.content.Context
+import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.media.projection.MediaProjectionManager
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
+import android.view.ViewGroup
+import android.webkit.CookieManager
+import android.webkit.SafeBrowsingResponse
+import android.webkit.SslErrorHandler
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.Language
-import androidx.compose.material.icons.rounded.Palette
-import androidx.compose.material.icons.rounded.ScreenShare
-import androidx.compose.material.icons.rounded.StopCircle
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -58,254 +54,493 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.webkit.JavaScriptReplyProxy
+import androidx.webkit.WebMessageCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 
-private val Ink = Color(0xFF202327)
-private val Canvas = Color(0xFFF5F2EC)
-private val Vermilion = Color(0xFFE8503A)
-private val Muted = Color(0xFF797C80)
+private const val START_URL = "https://mobile.yangkeduo.com/"
+private const val BRIDGE_NAME = "PinduoduoRussianBridge"
+private const val MAX_TRANSLATION_ITEMS = 18
+private const val MAX_NODE_TEXT_LENGTH = 400
+private val BrowserBackground = Color(0xFFF6F5F2)
+private val BrowserInk = Color(0xFF202327)
+private val BrowserAccent = Color(0xFFE8503A)
+
+private val PINDUODUO_HOSTS = setOf(
+    "yangkeduo.com",
+    "pinduoduo.com",
+    "pinduoduo.net",
+)
+
+private val PINDUODUO_ORIGIN_RULES = setOf(
+    "https://yangkeduo.com",
+    "https://*.yangkeduo.com",
+    "https://pinduoduo.com",
+    "https://*.pinduoduo.com",
+    "https://pinduoduo.net",
+    "https://*.pinduoduo.net",
+)
 
 class MainActivity : ComponentActivity() {
-    private var waitingForOverlayPermission = false
-
-    private val overlaySettingsLauncher =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-            if (waitingForOverlayPermission && Settings.canDrawOverlays(this)) requestScreenCapture()
-            waitingForOverlayPermission = false
-        }
-
-    private val projectionLauncher =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-                val serviceIntent = Intent(this, ScreenTranslationService::class.java).apply {
-                    putExtra(ScreenTranslationService.EXTRA_RESULT_CODE, result.resultCode)
-                    putExtra(ScreenTranslationService.EXTRA_RESULT_DATA, result.data)
-                }
-                if (Build.VERSION.SDK_INT >= 26) startForegroundService(serviceIntent) else startService(serviceIntent)
-            } else {
-                setStatus("Захват экрана отменён")
-            }
-        }
+    private var browserWebView: WebView? = null
+    private var translationBridgeInstalled = false
+    private lateinit var translations: TranslationRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        translations = TranslationRepository(this)
         setContent {
-            MaterialTheme(colorScheme = lightColorScheme(
-                primary = Vermilion,
-                background = Canvas,
-                surface = Color.White,
-                onBackground = Ink,
-                onSurface = Ink,
-            )) {
-                TranslatorHome(
-                    onStart = ::startTranslation,
-                    onStop = ::stopTranslation,
+            MaterialTheme(
+                colorScheme = lightColorScheme(
+                    primary = BrowserAccent,
+                    background = BrowserBackground,
+                    surface = Color.White,
+                    onBackground = BrowserInk,
+                    onSurface = BrowserInk,
+                ),
+            ) {
+                PinduoduoBrowser(
+                    activity = this,
+                    translations = translations,
+                    onBrowserReady = { view, bridgeInstalled ->
+                        browserWebView = view
+                        translationBridgeInstalled = bridgeInstalled
+                    },
                 )
             }
         }
     }
 
-    private fun startTranslation() {
-        if (!Settings.canDrawOverlays(this)) {
-            waitingForOverlayPermission = true
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName"),
-            )
-            overlaySettingsLauncher.launch(intent)
-            return
+    override fun onResume() {
+        super.onResume()
+        browserWebView?.onResume()
+    }
+
+    override fun onPause() {
+        browserWebView?.onPause()
+        CookieManager.getInstance().flush()
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        browserWebView?.let { view ->
+            view.stopLoading()
+            if (
+                translationBridgeInstalled &&
+                WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
+            ) {
+                WebViewCompat.removeWebMessageListener(view, BRIDGE_NAME)
+            }
+            (view.parent as? ViewGroup)?.removeView(view)
+            view.destroy()
         }
-        requestScreenCapture()
-    }
-
-    private fun requestScreenCapture() {
-        val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        projectionLauncher.launch(manager.createScreenCaptureIntent())
-    }
-
-    private fun stopTranslation() {
-        setStatus("Перевод остановлен")
-        stopService(Intent(this, ScreenTranslationService::class.java))
-    }
-
-    private fun setStatus(message: String) {
-        getSharedPreferences(ScreenTranslationService.PREFS, MODE_PRIVATE).edit()
-            .putString(ScreenTranslationService.KEY_STATUS, message)
-            .apply()
+        if (::translations.isInitialized) translations.close()
+        super.onDestroy()
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TranslatorHome(onStart: () -> Unit, onStop: () -> Unit) {
-    val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences(ScreenTranslationService.PREFS, Context.MODE_PRIVATE) }
-    var running by remember { mutableStateOf(prefs.getBoolean(ScreenTranslationService.KEY_RUNNING, false)) }
-    var status by remember { mutableStateOf(prefs.getString(ScreenTranslationService.KEY_STATUS, "Готов к работе") ?: "Готов к работе") }
-    var textSize by remember { mutableStateOf(prefs.getFloat(ScreenTranslationService.KEY_TEXT_SIZE, 15f)) }
-    var selectedColor by remember { mutableIntStateOf(prefs.getInt(ScreenTranslationService.KEY_TEXT_COLOR, android.graphics.Color.WHITE)) }
+private fun PinduoduoBrowser(
+    activity: MainActivity,
+    translations: TranslationRepository,
+    onBrowserReady: (WebView, Boolean) -> Unit,
+) {
+    var progress by remember { mutableIntStateOf(0) }
+    var currentUrl by remember { mutableStateOf(START_URL) }
+    var pageStatus by remember { mutableStateOf("Открываем мобильный сайт Pinduoduo…") }
+    var loadError by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            running = prefs.getBoolean(ScreenTranslationService.KEY_RUNNING, false)
-            status = prefs.getString(ScreenTranslationService.KEY_STATUS, "Готов к работе") ?: "Готов к работе"
-            delay(700)
-        }
+    val webView = remember(activity) {
+        createPinduoduoWebView(
+            activity = activity,
+            translations = translations,
+            onProgress = { progress = it },
+            onUrlChanged = { currentUrl = it },
+            onStatus = { pageStatus = it },
+            onLoadError = { message ->
+                loadError = message != null
+                if (message != null) pageStatus = message
+            },
+        ).also { (view, bridgeInstalled) ->
+            onBrowserReady(view, bridgeInstalled)
+        }.first
     }
 
-    Scaffold(
-        containerColor = Canvas,
-        floatingActionButton = {
-            if (!running) {
-                ExtendedFloatingActionButton(
-                    onClick = onStart,
-                    containerColor = Vermilion,
-                    contentColor = Color.White,
-                    shape = CircleShape,
-                ) {
-                    Icon(Icons.Rounded.ScreenShare, contentDescription = null)
-                    Text("Перевести", fontWeight = FontWeight.SemiBold)
-                }
+    BackHandler(enabled = webView.canGoBack()) {
+        webView.goBack()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BrowserBackground),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 5.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            IconButton(
+                enabled = webView.canGoBack(),
+                onClick = { webView.goBack() },
+                modifier = Modifier.size(44.dp),
+            ) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
             }
-        },
-    ) { padding ->
+            IconButton(
+                enabled = webView.canGoForward(),
+                onClick = { webView.goForward() },
+                modifier = Modifier.size(44.dp),
+            ) {
+                Icon(Icons.Default.ArrowForward, contentDescription = "Вперёд")
+            }
+            IconButton(
+                onClick = {
+                    loadError = false
+                    webView.reload()
+                },
+                modifier = Modifier.size(44.dp),
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = "Обновить")
+            }
+            IconButton(
+                onClick = {
+                    loadError = false
+                    webView.loadUrl(START_URL)
+                },
+                modifier = Modifier.size(44.dp),
+            ) {
+                Icon(Icons.Default.Home, contentDescription = "На главную Pinduoduo")
+            }
+        }
+
+        if (progress in 1..99) {
+            LinearProgressIndicator(
+                progress = progress / 100f,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp),
+                color = BrowserAccent,
+                trackColor = Color(0xFFE9E6E1),
+            )
+        } else {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp),
+                color = Color(0xFFE9E6E1),
+            ) {}
+        }
+
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 22.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 7.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .background(Vermilion, RoundedCornerShape(16.dp)),
-                    contentAlignment = Alignment.Center,
+            Text(
+                text = Uri.parse(currentUrl).host ?: "Pinduoduo",
+                color = BrowserInk,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = pageStatus,
+                color = Color(0xFF6F7479),
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .navigationBarsPadding(),
+        ) {
+            AndroidView(
+                factory = { webView },
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (loadError) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = BrowserBackground,
                 ) {
-                    Icon(Icons.Rounded.Language, contentDescription = null, tint = Color.White)
-                }
-                Column {
-                    Text("Pinduoduo", fontSize = 23.sp, fontWeight = FontWeight.Bold, color = Ink)
-                    Text("Переводчик экрана", fontSize = 13.sp, color = Muted)
-                }
-            }
-
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Ink),
-                shape = RoundedCornerShape(25.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(21.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Box(Modifier.size(8.dp).background(if (running) Color(0xFF83D6A1) else Color(0xFFFFB46A), CircleShape))
-                        Text(if (running) "ПЕРЕВОД ВКЛЮЧЁН" else "ГОТОВ К ПЕРЕВОДУ", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
-                    }
-                    Text("Китайский →\nрусский", fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-                    Text(status, fontSize = 13.sp, color = Color(0xFFC9C7C3), lineHeight = 19.sp)
-                    if (running) {
-                        Button(
-                            onClick = onStop,
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B3F43), contentColor = Color.White),
-                            shape = RoundedCornerShape(15.dp),
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text(
+                            text = pageStatus,
+                            color = BrowserInk,
+                            fontSize = 15.sp,
+                        )
+                        IconButton(
+                            onClick = {
+                                loadError = false
+                                webView.reload()
+                            },
                         ) {
-                            Icon(Icons.Rounded.StopCircle, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.size(9.dp))
-                            Text("Остановить перевод", fontWeight = FontWeight.SemiBold)
-                        }
-                    } else {
-                        Text("Нажмите плавающую кнопку, чтобы выдать разрешения и начать перевод.", fontSize = 13.sp, color = Color(0xFFCFCECB), lineHeight = 19.sp)
-                    }
-                }
-            }
-
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(22.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(19.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = Color(0xFF31876A), modifier = Modifier.size(19.dp))
-                        Text("Снимки остаются на устройстве", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    }
-                    Text(
-                        "Распознавание и перевод выполняются локально. Интернет может понадобиться только для первой загрузки языковой модели.",
-                        fontSize = 12.sp,
-                        lineHeight = 18.sp,
-                        color = Muted,
-                    )
-                }
-            }
-
-            Text("ВНЕШНИЙ ВИД ПЕРЕВОДА", fontSize = 11.sp, color = Muted, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(22.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(19.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                        Text("Размер текста", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        Text("${textSize.toInt()} sp", fontSize = 13.sp, color = Muted)
-                    }
-                    Slider(
-                        value = textSize,
-                        onValueChange = { value ->
-                            textSize = value
-                            prefs.edit().putFloat(ScreenTranslationService.KEY_TEXT_SIZE, value).apply()
-                        },
-                        valueRange = 11f..24f,
-                        steps = 12,
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Icon(Icons.Rounded.Palette, contentDescription = null, tint = Muted, modifier = Modifier.size(18.dp))
-                        Text("Цвет текста", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        listOf(
-                            android.graphics.Color.WHITE,
-                            Color(0xFFFFD36E).toArgb(),
-                            Color(0xFFB8F0D2).toArgb(),
-                            Color(0xFFFFA9A0).toArgb(),
-                            Color(0xFFB9D9FF).toArgb(),
-                        ).forEach { color ->
-                            Box(
-                                modifier = Modifier
-                                    .size(29.dp)
-                                    .background(Color(color), CircleShape)
-                                    .clickable {
-                                        selectedColor = color
-                                        prefs.edit().putInt(ScreenTranslationService.KEY_TEXT_COLOR, color).apply()
-                                    }
-                                    .padding(3.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                if (selectedColor == color) {
-                                    Box(Modifier.size(9.dp).background(Ink, CircleShape))
-                                }
-                            }
+                            Icon(Icons.Default.Refresh, contentDescription = "Повторить загрузку")
                         }
                     }
                 }
-            }
-
-            AnimatedVisibility(visible = !running) {
-                Text(
-                    "Оверлей не принимает касания: кнопки и жесты Pinduoduo остаются доступными.",
-                    color = Muted,
-                    fontSize = 12.sp,
-                    lineHeight = 17.sp,
-                    modifier = Modifier.padding(end = 70.dp, bottom = 8.dp),
-                )
             }
         }
     }
+}
+
+@SuppressLint("SetJavaScriptEnabled")
+private fun createPinduoduoWebView(
+    activity: MainActivity,
+    translations: TranslationRepository,
+    onProgress: (Int) -> Unit,
+    onUrlChanged: (String) -> Unit,
+    onStatus: (String) -> Unit,
+    onLoadError: (String?) -> Unit,
+): Pair<WebView, Boolean> {
+    val webView = WebView(activity)
+    with(webView.settings) {
+        javaScriptEnabled = true
+        domStorageEnabled = true
+        databaseEnabled = true
+        loadsImagesAutomatically = true
+        javaScriptCanOpenWindowsAutomatically = true
+        setSupportMultipleWindows(false)
+        mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+        allowFileAccess = false
+        allowContentAccess = false
+        cacheMode = WebSettings.LOAD_DEFAULT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) safeBrowsingEnabled = true
+    }
+    CookieManager.getInstance().apply {
+        setAcceptCookie(true)
+        setAcceptThirdPartyCookies(webView, true)
+    }
+
+    val bridgeInstalled = installTranslationBridge(
+        webView = webView,
+        activity = activity,
+        translations = translations,
+    )
+    val translationScript = runCatching {
+        activity.assets.open("pdd_translator.js").bufferedReader().use { it.readText() }
+    }.getOrDefault("")
+
+    webView.webChromeClient = object : WebChromeClient() {
+        override fun onProgressChanged(view: WebView?, newProgress: Int) {
+            onProgress(newProgress)
+        }
+    }
+    webView.webViewClient = object : WebViewClient() {
+        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest): Boolean =
+            handleNavigation(activity, request.url)
+
+        @Deprecated("Deprecated in Java")
+        override fun shouldOverrideUrlLoading(view: WebView?, url: String): Boolean =
+            handleNavigation(activity, Uri.parse(url))
+
+        override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+            if (url != null) onUrlChanged(url)
+            onLoadError(null)
+            onStatus("Загрузка страницы…")
+        }
+
+        override fun onPageFinished(view: WebView?, url: String?) {
+            if (url == null || view == null) return
+            onUrlChanged(url)
+            if (isPinduoduoHost(Uri.parse(url).host)) {
+                if (bridgeInstalled && translationScript.isNotBlank()) {
+                    view.evaluateJavascript(translationScript, null)
+                    onStatus("Страница Pinduoduo открыта · перевод включён")
+                } else {
+                    onStatus("Сайт открыт; перевод недоступен в текущей версии Android System WebView")
+                }
+            } else {
+                onStatus("Внешняя страница открыта · перевод работает только на Pinduoduo")
+            }
+        }
+
+        override fun onReceivedError(
+            view: WebView?,
+            request: WebResourceRequest?,
+            error: WebResourceError?,
+        ) {
+            if (request?.isForMainFrame == true) {
+                onLoadError("Не удалось загрузить сайт. Проверьте интернет и нажмите обновить.")
+            }
+        }
+
+        override fun onReceivedHttpError(
+            view: WebView?,
+            request: WebResourceRequest?,
+            errorResponse: WebResourceResponse?,
+        ) {
+            if (request?.isForMainFrame == true && (errorResponse?.statusCode ?: 0) >= 400) {
+                onStatus("Сайт ответил ошибкой HTTP ${errorResponse?.statusCode}")
+            }
+        }
+
+        override fun onReceivedSslError(
+            view: WebView?,
+            handler: SslErrorHandler?,
+            error: android.net.http.SslError?,
+        ) {
+            handler?.cancel()
+            onLoadError("Сертификат сайта не прошёл проверку. Соединение отменено.")
+        }
+
+        override fun onSafeBrowsingHit(
+            view: WebView?,
+            request: WebResourceRequest?,
+            threatType: Int,
+            callback: SafeBrowsingResponse?,
+        ) {
+            callback?.backToSafety(true)
+            onLoadError("Android заблокировал небезопасную страницу.")
+        }
+    }
+    webView.loadUrl(START_URL)
+    return webView to bridgeInstalled
+}
+
+private fun installTranslationBridge(
+    webView: WebView,
+    activity: MainActivity,
+    translations: TranslationRepository,
+): Boolean {
+    if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return false
+    return runCatching {
+        WebViewCompat.addWebMessageListener(
+            webView,
+            BRIDGE_NAME,
+            PINDUODUO_ORIGIN_RULES,
+            object : WebViewCompat.WebMessageListener {
+                override fun onPostMessage(
+                    view: WebView,
+                    message: WebMessageCompat,
+                    sourceOrigin: Uri,
+                    isMainFrame: Boolean,
+                    replyProxy: JavaScriptReplyProxy,
+                ) {
+                    if (!isMainFrame || !isPinduoduoHost(sourceOrigin.host)) return
+                    processTranslationMessage(
+                        message = message.data.orEmpty(),
+                        activity = activity,
+                        translations = translations,
+                        replyProxy = replyProxy,
+                        onStatus = onStatus,
+                    )
+                }
+            },
+        )
+        true
+    }.getOrDefault(false)
+}
+
+private fun processTranslationMessage(
+    message: String,
+    activity: MainActivity,
+    translations: TranslationRepository,
+    replyProxy: JavaScriptReplyProxy,
+    onStatus: (String) -> Unit,
+) {
+    val requestItems = runCatching { JSONObject(message).optJSONArray("items") }.getOrNull()
+    if (requestItems == null || requestItems.length() !in 1..MAX_TRANSLATION_ITEMS) return
+
+    activity.runOnUiThread { onStatus("Перевод текста страницы…") }
+    val responses = arrayOfNulls<JSONObject>(requestItems.length())
+    val remaining = AtomicInteger(requestItems.length())
+    for (index in 0 until requestItems.length()) {
+        val request = requestItems.optJSONObject(index)
+        val id = request?.optString("id").orEmpty()
+        val text = request?.optString("text").orEmpty()
+        val response = JSONObject().put("id", id)
+        if (id.isBlank() || text.isBlank() || text.length > MAX_NODE_TEXT_LENGTH) {
+            responses[index] = response.put("text", text).put("error", true)
+            if (remaining.decrementAndGet() == 0) postTranslationResponse(activity, replyProxy, responses)
+            continue
+        }
+
+        translations.translatePreservingValues(text) { result ->
+            result.onSuccess { translated ->
+                responses[index] = response.put("text", translated)
+                activity.runOnUiThread { onStatus("Страница Pinduoduo открыта · перевод включён") }
+            }.onFailure { error ->
+                responses[index] = response.put("text", text).put("error", true)
+                activity.runOnUiThread {
+                    onStatus(
+                        error.message?.let { "Перевод не выполнен; исходный текст сохранён: $it" }
+                            ?: "Перевод не выполнен; исходный текст сохранён",
+                    )
+                }
+            }
+            if (remaining.decrementAndGet() == 0) {
+                postTranslationResponse(activity, replyProxy, responses)
+            }
+        }
+    }
+}
+
+private fun postTranslationResponse(
+    activity: MainActivity,
+    replyProxy: JavaScriptReplyProxy,
+    responses: Array<JSONObject?>,
+) {
+    val items = JSONArray()
+    responses.forEach { item -> if (item != null) items.put(item) }
+    val result = JSONObject().put("items", items).toString()
+    activity.runOnUiThread {
+        runCatching { replyProxy.postMessage(result) }
+    }
+}
+
+private fun handleNavigation(activity: MainActivity, uri: Uri): Boolean {
+    val scheme = uri.scheme?.lowercase(Locale.ROOT)
+    if (scheme == "http" || scheme == "https" || scheme == "about" || scheme == "blob" || scheme == "data") {
+        return false
+    }
+    return try {
+        val intent = if (scheme == "intent") {
+            Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME)
+        } else {
+            Intent(Intent.ACTION_VIEW, uri)
+        }
+        activity.startActivity(intent)
+        true
+    } catch (_: ActivityNotFoundException) {
+        val fallback = runCatching {
+            Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME).getStringExtra("browser_fallback_url")
+        }.getOrNull()
+        if (fallback != null) {
+            runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(fallback))) }
+        }
+        true
+    } catch (_: Exception) {
+        true
+    }
+}
+
+private fun isPinduoduoHost(host: String?): Boolean {
+    val normalized = host?.lowercase(Locale.ROOT) ?: return false
+    return PINDUODUO_HOSTS.any { normalized == it || normalized.endsWith(".$it") }
 }

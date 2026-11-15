@@ -1,17 +1,17 @@
 package com.pddtranslator
 
 import android.content.Context
+import android.os.SystemClock
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
-import android.os.SystemClock
 import java.security.MessageDigest
 
 /**
- * Chinese → Russian translation stays on this device after the language model is downloaded.
- * Only text is handed to ML Kit; screenshots and bitmaps never leave the app.
+ * Chinese → Russian text is translated on-device after ML Kit downloads its language model.
+ * Only individual page text nodes reach this repository; full pages and product images do not.
  */
 class TranslationRepository(context: Context) {
     private val preferences = context.getSharedPreferences("translation_cache", Context.MODE_PRIVATE)
@@ -83,6 +83,55 @@ class TranslationRepository(context: Context) {
             }
     }
 
+    /**
+     * Translate readable text while preserving prices, numbers, currencies, and common
+     * specification values verbatim. Only Chinese text outside those tokens is translated.
+     */
+    fun translatePreservingValues(text: String, onResult: (Result<String>) -> Unit) {
+        val parts = mutableListOf<TranslationPart>()
+        var cursor = 0
+        VALUE_TOKEN.findAll(text).forEach { match ->
+            if (match.range.first > cursor) {
+                parts += TranslationPart(text.substring(cursor, match.range.first), isValue = false)
+            }
+            parts += TranslationPart(match.value, isValue = true)
+            cursor = match.range.last + 1
+        }
+        if (cursor < text.length) parts += TranslationPart(text.substring(cursor), isValue = false)
+        if (parts.isEmpty()) {
+            onResult(Result.success(text))
+            return
+        }
+
+        val translatedParts = parts.map { it.text }.toMutableList()
+        fun translatePart(index: Int) {
+            if (index >= parts.size) {
+                onResult(Result.success(translatedParts.joinToString(separator = "")))
+                return
+            }
+            val part = parts[index]
+            if (part.isValue || part.text.none { it.code in CHINESE_RANGE }) {
+                translatePart(index + 1)
+                return
+            }
+            val firstContent = part.text.indexOfFirst { !it.isWhitespace() }
+            val lastContent = part.text.indexOfLast { !it.isWhitespace() }
+            if (firstContent < 0 || lastContent < firstContent) {
+                translatePart(index + 1)
+                return
+            }
+            val leadingWhitespace = part.text.substring(0, firstContent)
+            val content = part.text.substring(firstContent, lastContent + 1)
+            val trailingWhitespace = part.text.substring(lastContent + 1)
+            translate(content) { result ->
+                result.onSuccess { translatedParts[index] = leadingWhitespace + it + trailingWhitespace }
+                    .onFailure { onResult(Result.failure(it)) }
+                if (result.isSuccess) translatePart(index + 1)
+            }
+        }
+        translatePart(0)
+    }
+
     private fun translateWithModel(text: String, onResult: (Result<String>) -> Unit) {
         translator.translate(text)
             .addOnSuccessListener { translated ->
@@ -116,5 +165,12 @@ class TranslationRepository(context: Context) {
     private companion object {
         const val MAX_CACHE_ENTRIES = 1000
         const val RETRY_DELAY_MS = 30_000L
+        val CHINESE_RANGE = 0x3400..0x9FFF
+        val VALUE_TOKEN = Regex(
+            """(?:\p{Sc}\s*)?\d[\d.,]*(?:\s*(?:元|人民币|块|件|个|ml|g|kg|cm|mm|m|码|号|寸|GB|TB|小时|天|月|年|折|券|套|包|片|瓶|盒|条|只|厘米|公斤|升|度))?|(?:\p{Sc}\s*)?[零〇一二两三四五六七八九十百千万亿点]+(?:\s*(?:元|人民币|块|角|分|折|件|个|码|号|寸|套|包|片|瓶|盒|条|只))""",
+            RegexOption.IGNORE_CASE,
+        )
     }
+
+    private data class TranslationPart(val text: String, val isValue: Boolean)
 }
