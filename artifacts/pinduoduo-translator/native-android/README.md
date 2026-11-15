@@ -8,7 +8,7 @@ Open `native-android` in Android Studio with Android SDK 35 and JDK 17 installed
 
 If Gradle is installed separately, run `gradle :app:assembleDebug` from this directory.
 
-The current Replit build environment does not include an Android SDK or Gradle installation, so it cannot produce or validate an APK here. The source is ready for an Android Studio build.
+The current Replit build environment does not include an Android SDK, JDK, or Gradle installation, so it cannot produce or validate an APK here. The source is ready for an Android Studio build.
 
 ## Privacy and permissions
 
