@@ -8,8 +8,14 @@ import android.os.Build
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.TextView
+import androidx.core.widget.TextViewCompat
+import kotlin.math.roundToInt
 
-data class TranslatedRegion(val text: String, val bounds: Rect)
+data class TranslatedRegion(
+    val text: String,
+    val bounds: Rect,
+    val patchColor: Int? = null,
+)
 
 /**
  * Screen text is a touch-through window. It never receives input, so taps and gestures
@@ -29,17 +35,36 @@ class TranslationOverlay(private val context: Context) {
             if (region.text.isBlank() || region.bounds.width() <= 0 || region.bounds.height() <= 0) return@forEach
             val label = TextView(context).apply {
                 text = region.text
-                setTextColor(textColor)
-                textSize = textSize
-                gravity = Gravity.CENTER_VERTICAL
-                maxLines = 3
-                setPadding(dp(3), 0, dp(3), 0)
-                setBackgroundColor(Color.argb(218, 26, 29, 32))
-                elevation = dp(1).toFloat()
+                val background = region.patchColor
+                val selectedTextColor = if (background != null &&
+                    kotlin.math.abs(Color.luminance(background) - Color.luminance(textColor)) < MIN_TEXT_CONTRAST
+                ) {
+                    if (Color.luminance(background) > 0.5f) Color.BLACK else Color.WHITE
+                } else {
+                    textColor
+                }
+                setTextColor(selectedTextColor)
+                this.textSize = textSize
+                gravity = Gravity.CENTER
+                maxLines = MAX_TRANSLATED_LINES
+                setHorizontallyScrolling(false)
+                includeFontPadding = false
+                setPadding(dp(1), 0, dp(1), 0)
+                setBackgroundColor(background ?: Color.argb(218, 26, 29, 32))
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    breakStrategy = android.text.Layout.BREAK_STRATEGY_SIMPLE
+                }
+                TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                    this,
+                    MIN_TEXT_SIZE_SP,
+                    textSize.roundToInt().coerceAtLeast(MIN_TEXT_SIZE_SP + 1),
+                    AUTO_SIZE_STEP_SP,
+                    android.util.TypedValue.COMPLEX_UNIT_SP,
+                )
             }
             val params = WindowManager.LayoutParams(
-                region.bounds.width().coerceAtLeast(dp(30)),
-                region.bounds.height().coerceAtLeast(dp(20)),
+                region.bounds.width(),
+                region.bounds.height(),
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 } else {
@@ -80,4 +105,11 @@ class TranslationOverlay(private val context: Context) {
 
     private fun dp(value: Int): Int =
         (value * context.resources.displayMetrics.density).toInt()
+
+    private companion object {
+        const val MIN_TEXT_SIZE_SP = 7
+        const val AUTO_SIZE_STEP_SP = 1
+        const val MAX_TRANSLATED_LINES = 3
+        const val MIN_TEXT_CONTRAST = 0.42f
+    }
 }

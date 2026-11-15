@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
@@ -43,6 +44,10 @@ class ScreenTranslationService : Service() {
     private var recognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
     private var repository: TranslationRepository? = null
     private var overlay: TranslationOverlay? = null
+    private var captureWidth = 0
+    private var captureHeight = 0
+    private var captureDensityDpi = 0
+    private var displayListenerRegistered = false
     private val processingFrame = AtomicBoolean(false)
     @Volatile private var lastFrameAt = 0L
     @Volatile private var frameNumber = 0L
@@ -120,8 +125,10 @@ class ScreenTranslationService : Service() {
         val width = metrics.widthPixels
         val height = metrics.heightPixels
         val densityDpi = metrics.densityDpi
-        imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 3)
-        imageReader?.setOnImageAvailableListener({ reader -> processLatestImage(reader) }, worker)
+        captureWidth = width
+        captureHeight = height
+        captureDensityDpi = densityDpi
+        imageReader = createImageReader(width, height)
         virtualDisplay = mediaProjection.createVirtualDisplay(
             "PinduoduoTranslation",
             width,
@@ -132,6 +139,49 @@ class ScreenTranslationService : Service() {
             null,
             worker,
         ) ?: throw IllegalStateException("Android не создал виртуальный экран")
+        val displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        displayManager.registerDisplayListener(displayListener, worker)
+        displayListenerRegistered = true
+    }
+
+    private fun createImageReader(width: Int, height: Int): ImageReader =
+        ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 3).also { reader ->
+            reader.setOnImageAvailableListener({ availableReader -> processLatestImage(availableReader) }, worker)
+        }
+
+    private fun refreshCaptureSize() {
+        val metrics = resources.displayMetrics
+        val width = metrics.widthPixels
+        val height = metrics.heightPixels
+        val densityDpi = metrics.densityDpi
+        if (width <= 0 || height <= 0 ||
+            (width == captureWidth && height == captureHeight && densityDpi == captureDensityDpi)
+        ) return
+
+        val display = virtualDisplay ?: return
+        val replacementReader = try {
+            createImageReader(width, height)
+        } catch (_: RuntimeException) {
+            saveStatus("Не удалось обновить размер захвата экрана")
+            return
+        }
+        val previousReader = imageReader
+        try {
+            display.resize(width, height, densityDpi)
+            display.setSurface(replacementReader.surface)
+            imageReader = replacementReader
+            captureWidth = width
+            captureHeight = height
+            captureDensityDpi = densityDpi
+            frameNumber += 1
+            mainHandler.post { overlay?.clear() }
+            previousReader?.setOnImageAvailableListener(null, null)
+            previousReader?.close()
+        } catch (_: RuntimeException) {
+            replacementReader.setOnImageAvailableListener(null, null)
+            replacementReader.close()
+            saveStatus("Не удалось обновить размер захвата экрана")
+        }
     }
 
     private fun processLatestImage(reader: ImageReader) {
@@ -159,7 +209,7 @@ class ScreenTranslationService : Service() {
 
         recognizer.process(InputImage.fromBitmap(bitmap, 0))
             .addOnSuccessListener(ocrExecutor) { recognized ->
-                translateRecognizedText(recognized, sequence)
+                translateRecognizedText(recognized, sequence, bitmap)
             }
             .addOnFailureListener(ocrExecutor) {
                 if (sequence == frameNumber) saveStatus("Ошибка распознавания текста")
@@ -170,9 +220,9 @@ class ScreenTranslationService : Service() {
             }
     }
 
-    private fun translateRecognizedText(recognized: Text, sequence: Long) {
+    private fun translateRecognizedText(recognized: Text, sequence: Long, bitmap: Bitmap) {
         val lines = recognized.textBlocks.flatMap { block -> block.lines }
-            .filter { line -> line.text.any { it.code in 0x3400..0x9FFF } }
+            .filter(::isSafeChineseTextLine)
         if (lines.isEmpty()) {
             if (sequence == frameNumber) {
                 mainHandler.post { overlay?.clear() }
@@ -183,11 +233,30 @@ class ScreenTranslationService : Service() {
         }
 
         val metrics = resources.displayMetrics
-        val screenBounds = android.graphics.Rect(0, 0, metrics.widthPixels, metrics.heightPixels)
-        val safeRegions = lines.mapNotNull { line ->
+        val candidates = lines.mapNotNull { line ->
             val bounds = line.boundingBox ?: return@mapNotNull null
-            if (!screenBounds.intersects(bounds.left, bounds.top, bounds.right, bounds.bottom)) return@mapNotNull null
-            TranslatedRegion(line.text, android.graphics.Rect(bounds))
+            if (!isReliableTextBounds(bounds, bitmap.width, bitmap.height)) return@mapNotNull null
+            val screenBounds = android.graphics.Rect(
+                (bounds.left * metrics.widthPixels.toFloat() / bitmap.width).toInt(),
+                (bounds.top * metrics.heightPixels.toFloat() / bitmap.height).toInt(),
+                (bounds.right * metrics.widthPixels.toFloat() / bitmap.width).toInt(),
+                (bounds.bottom * metrics.heightPixels.toFloat() / bitmap.height).toInt(),
+            )
+            if (screenBounds.width() <= 0 || screenBounds.height() <= 0) return@mapNotNull null
+            TranslatedRegion(
+                line.text,
+                screenBounds,
+                estimateFlatBackgroundColor(bitmap, bounds),
+            )
+        }
+        // Refuse ambiguous overlapping OCR boxes so one patch cannot erase a neighboring label.
+        val safeRegions = candidates.filterIndexed { index, region ->
+            candidates.indices.none { otherIndex ->
+                otherIndex != index && android.graphics.Rect.intersects(
+                    region.bounds,
+                    candidates[otherIndex].bounds,
+                )
+            }
         }
         if (safeRegions.isEmpty()) {
             if (sequence == frameNumber) {
@@ -204,7 +273,7 @@ class ScreenTranslationService : Service() {
         safeRegions.forEach { region ->
             repository?.translate(region.text) { result ->
                 result.onSuccess { russian ->
-                    translated.add(TranslatedRegion(russian, region.bounds))
+                    translated.add(TranslatedRegion(russian, region.bounds, region.patchColor))
                     mainHandler.post {
                         if (sequence == frameNumber) overlay?.show(translated.toList())
                     }
@@ -227,6 +296,99 @@ class ScreenTranslationService : Service() {
             }
         }
     }
+
+    private fun isReliableTextBounds(bounds: android.graphics.Rect, width: Int, height: Int): Boolean {
+        if (bounds.left < 0 || bounds.top < 0 || bounds.right > width || bounds.bottom > height) return false
+        val boxWidth = bounds.width()
+        val boxHeight = bounds.height()
+        return boxWidth >= MIN_TEXT_BOUNDS_PX &&
+            boxHeight >= MIN_TEXT_BOUNDS_PX &&
+            boxWidth <= width * MAX_TEXT_WIDTH_FRACTION &&
+            boxHeight <= height * MAX_TEXT_HEIGHT_FRACTION &&
+            boxWidth.toFloat() / boxHeight <= MAX_TEXT_ASPECT_RATIO
+    }
+
+    private fun isSafeChineseTextLine(line: Text.Line): Boolean =
+        line.confidence >= MIN_OCR_CONFIDENCE &&
+            line.text.any { it.code in 0x3400..0x9FFF } &&
+            line.text.none { it.isDigit() || it in CURRENCY_MARKERS }
+
+    /**
+     * Estimate a solid patch only when both the outside edge and most of the OCR box
+     * agree on one color. This rejects textured photo regions; ambiguous cases keep the
+     * previous semi-opaque label style rather than painting over uncertain content.
+     */
+    private fun estimateFlatBackgroundColor(bitmap: Bitmap, bounds: android.graphics.Rect): Int? {
+        val ringWidth = maxOf(MIN_PATCH_SAMPLE_PX, minOf(bounds.width(), bounds.height()) / PATCH_RING_DIVISOR)
+        val stride = maxOf(1, minOf(bounds.width(), bounds.height()) / PATCH_SAMPLE_STRIDE_DIVISOR)
+        val samples = ArrayList<Int>()
+        fun addSample(x: Int, y: Int) {
+            if (x in 0 until bitmap.width && y in 0 until bitmap.height) {
+                samples.add(bitmap.getPixel(x, y))
+            }
+        }
+
+        var x = bounds.left
+        while (x < bounds.right) {
+            for (offset in 1..ringWidth) {
+                addSample(x, bounds.top - offset)
+                addSample(x, bounds.bottom - 1 + offset)
+            }
+            x += stride
+        }
+        var y = bounds.top
+        while (y < bounds.bottom) {
+            for (offset in 1..ringWidth) {
+                addSample(bounds.left - offset, y)
+                addSample(bounds.right - 1 + offset, y)
+            }
+            y += stride
+        }
+
+        if (samples.size < MIN_PATCH_SAMPLES) return null
+        val dominantBucket = samples.groupingBy(::colorBucket).eachCount().maxByOrNull { it.value } ?: return null
+        if (dominantBucket.value.toFloat() / samples.size < MIN_PATCH_DOMINANT_FRACTION) return null
+        if (backgroundFractionInside(bitmap, bounds, dominantBucket.key, stride) <
+            MIN_PATCH_INTERIOR_BACKGROUND_FRACTION
+        ) return null
+        val dominantColors = samples.filter { colorBucket(it) == dominantBucket.key }
+        val red = dominantColors.map { Color.red(it) }.average().toInt()
+        val green = dominantColors.map { Color.green(it) }.average().toInt()
+        val blue = dominantColors.map { Color.blue(it) }.average().toInt()
+        val meanDeviation = dominantColors.map { color ->
+            kotlin.math.abs(Color.red(color) - red) +
+                kotlin.math.abs(Color.green(color) - green) +
+                kotlin.math.abs(Color.blue(color) - blue)
+        }.average()
+        if (meanDeviation > MAX_PATCH_COLOR_DEVIATION) return null
+        return Color.rgb(red, green, blue)
+    }
+
+    private fun backgroundFractionInside(
+        bitmap: Bitmap,
+        bounds: android.graphics.Rect,
+        expectedBucket: Int,
+        stride: Int,
+    ): Float {
+        var matches = 0
+        var count = 0
+        var y = bounds.top
+        while (y < bounds.bottom) {
+            var x = bounds.left
+            while (x < bounds.right) {
+                if (colorBucket(bitmap.getPixel(x, y)) == expectedBucket) matches += 1
+                count += 1
+                x += stride
+            }
+            y += stride
+        }
+        return if (count == 0) 0f else matches.toFloat() / count
+    }
+
+    private fun colorBucket(color: Int): Int =
+        ((Color.red(color) shr COLOR_BUCKET_SHIFT) shl 8) or
+            ((Color.green(color) shr COLOR_BUCKET_SHIFT) shl 4) or
+            (Color.blue(color) shr COLOR_BUCKET_SHIFT)
 
     private fun Image.toBitmap(): Bitmap {
         val plane = planes.first()
@@ -275,11 +437,26 @@ class ScreenTranslationService : Service() {
         }
     }
 
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = Unit
+
+        override fun onDisplayRemoved(displayId: Int) = Unit
+
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId == DEFAULT_DISPLAY_ID) worker?.post { refreshCaptureSize() }
+        }
+    }
+
     override fun onDestroy() {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
             .putBoolean(KEY_RUNNING, false)
             .apply()
         imageReader?.setOnImageAvailableListener(null, null)
+        if (displayListenerRegistered) {
+            (getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
+                .unregisterDisplayListener(displayListener)
+            displayListenerRegistered = false
+        }
         virtualDisplay?.release()
         imageReader?.close()
         overlay?.clear()
@@ -305,5 +482,20 @@ class ScreenTranslationService : Service() {
         private const val CHANNEL_ID = "screen_translation"
         private const val NOTIFICATION_ID = 28
         private const val MIN_FRAME_INTERVAL_MS = 950L
+        private const val DEFAULT_DISPLAY_ID = 0
+        private const val MIN_OCR_CONFIDENCE = 0.55f
+        private val CURRENCY_MARKERS = setOf('¥', '￥', '$', '€', '£')
+        private const val MIN_TEXT_BOUNDS_PX = 10
+        private const val MAX_TEXT_WIDTH_FRACTION = 0.92f
+        private const val MAX_TEXT_HEIGHT_FRACTION = 0.15f
+        private const val MAX_TEXT_ASPECT_RATIO = 35f
+        private const val MIN_PATCH_SAMPLE_PX = 2
+        private const val PATCH_RING_DIVISOR = 5
+        private const val PATCH_SAMPLE_STRIDE_DIVISOR = 24
+        private const val MIN_PATCH_SAMPLES = 24
+        private const val MIN_PATCH_DOMINANT_FRACTION = 0.68f
+        private const val MIN_PATCH_INTERIOR_BACKGROUND_FRACTION = 0.55f
+        private const val COLOR_BUCKET_SHIFT = 4
+        private const val MAX_PATCH_COLOR_DEVIATION = 22.0
     }
 }
