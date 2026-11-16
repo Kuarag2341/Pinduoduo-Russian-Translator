@@ -71,7 +71,7 @@ import java.util.concurrent.atomic.AtomicInteger
 private const val START_URL = "https://mobile.yangkeduo.com/"
 private const val BRIDGE_NAME = "PinduoduoRussianBridge"
 private const val MAX_TRANSLATION_ITEMS = 18
-private const val MAX_NODE_TEXT_LENGTH = 400
+private const val MAX_NODE_TEXT_LENGTH = 1200
 private val BrowserBackground = Color(0xFFF6F5F2)
 private val BrowserInk = Color(0xFF202327)
 private val BrowserAccent = Color(0xFFE8503A)
