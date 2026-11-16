@@ -13,6 +13,8 @@ interface TranslationCatalog {
     fun hasSection(locale: LocaleCode, section: DictionarySection): Boolean = false
 
     fun sourceText(key: String): String? = find(LocaleCode.CHINESE, key)
+
+    fun resourceName(key: String): String? = null
 }
 
 class MapTranslationCatalog(
@@ -35,6 +37,9 @@ class PropertiesTranslationCatalog(
 ) : TranslationCatalog {
     private val cache =
         ConcurrentHashMap<Pair<LocaleCode, DictionarySection>, Map<String, String>>()
+    private val provenance: Map<String, String> by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        loadProperties("i18n/provenance.properties")
+    }
 
     override fun find(locale: LocaleCode, key: String): String? {
         val section = DictionarySection.fromKey(key) ?: return null
@@ -50,18 +55,19 @@ class PropertiesTranslationCatalog(
     override fun hasSection(locale: LocaleCode, section: DictionarySection): Boolean =
         classLoader.getResource(resourcePath(locale, section)) != null
 
+    override fun resourceName(key: String): String? = provenance[key]
+
     private fun load(
         locale: LocaleCode,
         section: DictionarySection
-    ): Map<String, String> {
-        val properties = Properties()
-        val stream = classLoader.getResourceAsStream(resourcePath(locale, section))
-            ?: return emptyMap()
+    ): Map<String, String> = loadProperties(resourcePath(locale, section))
 
+    private fun loadProperties(path: String): Map<String, String> {
+        val properties = Properties()
+        val stream = classLoader.getResourceAsStream(path) ?: return emptyMap()
         stream.use {
             InputStreamReader(it, StandardCharsets.UTF_8).use(properties::load)
         }
-
         return properties.stringPropertyNames().associateWith(properties::getProperty)
     }
 
