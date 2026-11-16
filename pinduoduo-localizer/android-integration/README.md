@@ -35,6 +35,14 @@ gradle -p pinduoduo-localizer/android-integration \
   :localizer-android:testDebugUnitTest
 ```
 
+Для проверки сохранения русского языка после остановки и повторного запуска
+процесса демо-приложения подключите Android-устройство или запустите эмулятор и
+выполните:
+
+```sh
+./scripts/verify-locale-process-restart.sh
+```
+
 ## Граница интеграции
 
 Это библиотека и проверяемые адаптеры, а не подключение к Pinduoduo. Для
