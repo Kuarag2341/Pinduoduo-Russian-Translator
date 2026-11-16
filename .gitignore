@@ -56,3 +56,6 @@ Thumbs.db
 
 # Generated deliverables
 /generated-artifacts/
+
+# Standalone Pinduoduo localizer JVM test output
+/pinduoduo-localizer/target/
