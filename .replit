@@ -21,4 +21,4 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
-packages = ["jadx", "apktool", "android-tools", "aapt", "apksigner"]
+packages = ["jadx", "apktool", "android-tools", "aapt", "apksigner", "gradle_8"]
