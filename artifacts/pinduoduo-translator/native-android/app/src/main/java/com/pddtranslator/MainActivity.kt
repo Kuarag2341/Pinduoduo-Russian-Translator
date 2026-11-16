@@ -341,6 +341,7 @@ private fun createPinduoduoWebView(
         webView = webView,
         activity = activity,
         translations = translations,
+        onStatus = onStatus,
     )
     val translationScript = runCatching {
         activity.assets.open("pdd_translator.js").bufferedReader().use { it.readText() }
@@ -427,6 +428,7 @@ private fun installTranslationBridge(
     webView: WebView,
     activity: MainActivity,
     translations: TranslationRepository,
+    onStatus: (String) -> Unit,
 ): Boolean {
     if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return false
     return runCatching {
