@@ -14,6 +14,6 @@ class WebViewI18nAdapter(
         val safeKey = key.trim()
         if (safeModule.isEmpty() || safeKey.isEmpty()) return defaultValue
 
-        return localization.translate("web.$safeModule.$safeKey", defaultValue)
+        return localization.translate("$safeModule.$safeKey", defaultValue)
     }
 }

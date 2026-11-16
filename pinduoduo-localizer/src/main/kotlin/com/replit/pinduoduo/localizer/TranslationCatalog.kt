@@ -7,6 +7,12 @@ import java.util.concurrent.ConcurrentHashMap
 
 interface TranslationCatalog {
     fun find(locale: LocaleCode, key: String): String?
+
+    fun entries(locale: LocaleCode, section: DictionarySection): Map<String, String> = emptyMap()
+
+    fun hasSection(locale: LocaleCode, section: DictionarySection): Boolean = false
+
+    fun sourceText(key: String): String? = find(LocaleCode.CHINESE, key)
 }
 
 class MapTranslationCatalog(
@@ -27,15 +33,30 @@ class PropertiesTranslationCatalog(
         Thread.currentThread().contextClassLoader
             ?: PropertiesTranslationCatalog::class.java.classLoader
 ) : TranslationCatalog {
-    private val cache = ConcurrentHashMap<LocaleCode, Map<String, String>>()
+    private val cache =
+        ConcurrentHashMap<Pair<LocaleCode, DictionarySection>, Map<String, String>>()
 
-    override fun find(locale: LocaleCode, key: String): String? =
-        cache.computeIfAbsent(locale, ::load)[key]
+    override fun find(locale: LocaleCode, key: String): String? {
+        val section = DictionarySection.fromKey(key) ?: return null
+        return entries(locale, section)[key]
+    }
 
-    private fun load(locale: LocaleCode): Map<String, String> {
-        val resourcePath = "i18n/${locale.tag}.properties"
+    override fun entries(
+        locale: LocaleCode,
+        section: DictionarySection
+    ): Map<String, String> =
+        cache.computeIfAbsent(locale to section) { load(locale, section) }
+
+    override fun hasSection(locale: LocaleCode, section: DictionarySection): Boolean =
+        classLoader.getResource(resourcePath(locale, section)) != null
+
+    private fun load(
+        locale: LocaleCode,
+        section: DictionarySection
+    ): Map<String, String> {
         val properties = Properties()
-        val stream = classLoader.getResourceAsStream(resourcePath) ?: return emptyMap()
+        val stream = classLoader.getResourceAsStream(resourcePath(locale, section))
+            ?: return emptyMap()
 
         stream.use {
             InputStreamReader(it, StandardCharsets.UTF_8).use(properties::load)
@@ -43,4 +64,7 @@ class PropertiesTranslationCatalog(
 
         return properties.stringPropertyNames().associateWith(properties::getProperty)
     }
+
+    private fun resourcePath(locale: LocaleCode, section: DictionarySection): String =
+        "i18n/${locale.tag}/${section.fileName}.properties"
 }

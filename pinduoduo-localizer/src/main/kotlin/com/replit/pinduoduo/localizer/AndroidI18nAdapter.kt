@@ -8,5 +8,5 @@ class AndroidI18nAdapter(
     private val localization: LocalizationModule
 ) {
     fun getString(resourceName: String, originalText: String): String =
-        localization.translate("native.$resourceName", originalText)
+        localization.translate(resourceName, originalText)
 }
