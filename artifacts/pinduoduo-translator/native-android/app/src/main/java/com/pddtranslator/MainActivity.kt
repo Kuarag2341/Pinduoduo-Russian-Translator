@@ -354,11 +354,11 @@ private fun createPinduoduoWebView(
     }
     webView.webViewClient = object : WebViewClient() {
         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest): Boolean =
-            handleNavigation(activity, request.url)
+            handleNavigation(activity, view, request.url)
 
         @Deprecated("Deprecated in Java")
         override fun shouldOverrideUrlLoading(view: WebView?, url: String): Boolean =
-            handleNavigation(activity, Uri.parse(url))
+            handleNavigation(activity, view, Uri.parse(url))
 
         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
             if (url != null) onUrlChanged(url)
@@ -516,30 +516,50 @@ private fun postTranslationResponse(
     }
 }
 
-private fun handleNavigation(activity: MainActivity, uri: Uri): Boolean {
+private fun handleNavigation(activity: MainActivity, webView: WebView?, uri: Uri): Boolean {
     val scheme = uri.scheme?.lowercase(Locale.ROOT)
-    if (scheme == "http" || scheme == "https" || scheme == "about" || scheme == "blob" || scheme == "data") {
-        return false
+    if (scheme == "http" || scheme == "https") {
+        if (isPinduoduoWebUri(uri)) return false
+        return openExternalWebPage(activity, uri)
     }
-    return try {
-        val intent = if (scheme == "intent") {
+
+    if (scheme == "intent") {
+        val parsedIntent = runCatching {
             Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME)
-        } else {
-            Intent(Intent.ACTION_VIEW, uri)
+        }.getOrNull() ?: return true
+
+        val internalWebTarget = parsedIntent.data
+            ?.takeIf(::isPinduoduoWebUri)
+            ?: parsedIntent.getStringExtra("browser_fallback_url")
+                ?.let { runCatching { Uri.parse(it) }.getOrNull() }
+                ?.takeIf(::isPinduoduoWebUri)
+
+        if (internalWebTarget != null) {
+            webView?.loadUrl(internalWebTarget.toString())
         }
-        activity.startActivity(intent)
+        return true
+    }
+
+    // Keep WebView-managed document/data URLs working, but never dispatch other schemes
+    // (for example market://, pdd://, tel:, or arbitrary app links) to Android.
+    return scheme !in setOf("about", "blob", "data")
+}
+
+private fun openExternalWebPage(activity: MainActivity, uri: Uri): Boolean {
+    if (uri.host.isNullOrBlank()) return true
+    return try {
+        activity.startActivity(Intent(Intent.ACTION_VIEW, uri))
         true
     } catch (_: ActivityNotFoundException) {
-        val fallback = runCatching {
-            Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME).getStringExtra("browser_fallback_url")
-        }.getOrNull()
-        if (fallback != null) {
-            runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(fallback))) }
-        }
         true
     } catch (_: Exception) {
         true
     }
+}
+
+private fun isPinduoduoWebUri(uri: Uri): Boolean {
+    val scheme = uri.scheme?.lowercase(Locale.ROOT)
+    return (scheme == "http" || scheme == "https") && isPinduoduoHost(uri.host)
 }
 
 private fun isPinduoduoHost(host: String?): Boolean {
