@@ -1,0 +1,53 @@
+name: Localization Demo Android APK
+
+on:
+  push:
+    paths:
+      - "pinduoduo-localizer/**"
+      - ".github/workflows/build-demo-app.yml"
+  pull_request:
+    paths:
+      - "pinduoduo-localizer/**"
+      - ".github/workflows/build-demo-app.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-demo-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out project
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK 35
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platforms;android-35
+            build-tools;35.0.0
+
+      - name: Build and test demo app
+        working-directory: pinduoduo-localizer/android-integration
+        run: |
+          ./gradlew --no-daemon \
+            :localizer-android:testDebugUnitTest \
+            :demo-app:testDebugUnitTest \
+            :demo-app:assembleDebug
+
+      - name: Upload installable debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: localizer-demo-debug-apk
+          path: pinduoduo-localizer/android-integration/demo-app/build/outputs/apk/debug/demo-app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
