@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "pinduoduo-localizer-android"
-include(":localizer-android")
+include(":localizer-android", ":demo-app")
