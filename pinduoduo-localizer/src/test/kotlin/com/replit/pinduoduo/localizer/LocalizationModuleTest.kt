@@ -118,6 +118,8 @@ class LocalizationModuleTest {
 
         assertTrue(catalog.entries(LocaleCode.RUSSIAN, DictionarySection.CART).isEmpty())
         assertTrue(catalog.entries(LocaleCode.CHINESE, DictionarySection.CART).isEmpty())
+        assertTrue(catalog.entries(LocaleCode.RUSSIAN, DictionarySection.ATTRIBUTES).isEmpty())
+        assertTrue(catalog.entries(LocaleCode.CHINESE, DictionarySection.ATTRIBUTES).isEmpty())
     }
 
     @Test
@@ -141,6 +143,20 @@ class LocalizationModuleTest {
     }
 
     @Test
+    fun `every dictionary row has a unique confirmed APK resource reference`() {
+        val catalog = PropertiesTranslationCatalog()
+        val keys = DictionarySection.entries.flatMap { section ->
+            catalog.entries(LocaleCode.CHINESE, section).keys
+        }
+        val resourceNames = keys.map { key ->
+            assertNotNull(catalog.resourceName(key), "Missing APK resource reference for $key")
+            catalog.resourceName(key)!!
+        }
+
+        assertEquals(resourceNames.size, resourceNames.toSet().size)
+    }
+
+    @Test
     fun `all dictionary strings are nonblank and use valid UTF-8 Cyrillic in Russian`() {
         val catalog = PropertiesTranslationCatalog()
         val russianEntries = DictionarySection.entries.flatMap { section ->
@@ -155,7 +171,7 @@ class LocalizationModuleTest {
         assertTrue(chineseEntries.all { it.key.isNotBlank() && it.value.isNotBlank() })
         assertTrue(russianEntries.any { (_, value) -> value.any { it in 'А'..'я' } })
         assertTrue(chineseEntries.any { (_, value) -> value.any { it in '\u4E00'..'\u9FFF' } })
-        assertNotNull(catalog.find(LocaleCode.RUSSIAN, "attributes.material"))
+        assertNotNull(catalog.find(LocaleCode.RUSSIAN, "categories.title"))
     }
 
     @Test
@@ -197,12 +213,12 @@ class LocalizationModuleTest {
     }
 
     @Test
-    fun `quantity and amount parameters are preserved when formatting`() {
+    fun `quantity and string parameters are preserved when formatting`() {
         val localization = LocalizationModule(PropertiesTranslationCatalog())
         assertTrue(localization.selectLanguage("ru"))
 
         assertEquals(
-            "Показать оставшиеся: 3",
+            "Показать ещё 3 товаров",
             localization.format(
                 "orders.goods_more",
                 "查看剩余%1\$s件商品",
@@ -210,11 +226,19 @@ class LocalizationModuleTest {
             )
         )
         assertEquals(
-            "Цена товара: ¥128.50",
+            "В избранное добавили 17 чел.",
             localization.format(
-                "products.price_with_value",
-                "商品价格：%1\$s",
-                "¥128.50"
+                "favorites.goods.count",
+                "%1\$s人收藏",
+                "17"
+            )
+        )
+        assertEquals(
+            "Посылок в заказе: 2",
+            localization.format(
+                "delivery.package_count",
+                "该订单共%1\$s个包裹",
+                "2"
             )
         )
     }
@@ -240,7 +264,7 @@ class LocalizationModuleTest {
         val androidI18n = AndroidI18nAdapter(localization)
         val webViewI18n = WebViewI18nAdapter(localization)
 
-        assertEquals("Стиль", androidI18n.getString("attributes.style", "风格"))
+        assertEquals("Главная", androidI18n.getString("home.tab.home", "首页"))
         assertEquals(
             "Отследить доставку",
             webViewI18n.getText("delivery", "track", "查看物流")
