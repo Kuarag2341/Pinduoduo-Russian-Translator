@@ -4,7 +4,7 @@
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
-        android:label="Pinduoduo на русском"
+        android:label="Pinduoduo Русский Браузер"
         android:roundIcon="@drawable/ic_launcher"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="false">

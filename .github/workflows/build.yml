@@ -1,14 +1,14 @@
-name: Android APK
+name: Pinduoduo Russian Browser Android
 
 on:
   push:
     paths:
-      - "artifacts/pinduoduo-translator/native-android/**"
-      - ".github/workflows/android-apk.yml"
+      - "pinduoduo-russian-browser-source.zip"
+      - ".github/workflows/build.yml"
   pull_request:
     paths:
-      - "artifacts/pinduoduo-translator/native-android/**"
-      - ".github/workflows/android-apk.yml"
+      - "pinduoduo-russian-browser-source.zip"
+      - ".github/workflows/build.yml"
   workflow_dispatch:
 
 permissions:
@@ -32,10 +32,20 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Set up Android SDK
+      - name: Set up Android SDK 35
         uses: android-actions/setup-android@v3
         with:
           packages: "platforms;android-35 build-tools;35.0.0"
+
+      - name: Extract native Android source
+        run: |
+          test -f pinduoduo-russian-browser-source.zip
+          unzip -o -q pinduoduo-russian-browser-source.zip \
+            'artifacts/pinduoduo-translator/native-android/*' \
+            -d .
+          test -f artifacts/pinduoduo-translator/native-android/settings.gradle.kts
+          test -f artifacts/pinduoduo-translator/native-android/app/build.gradle.kts
+          test -f artifacts/pinduoduo-translator/native-android/app/src/main/assets/pdd_translator.js
 
       - name: Assemble debug APK
         working-directory: artifacts/pinduoduo-translator/native-android

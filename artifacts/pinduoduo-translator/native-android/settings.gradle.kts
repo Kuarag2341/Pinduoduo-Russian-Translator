@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "PinduoduoRussianTranslator"
+rootProject.name = "PinduoduoRussianBrowser"
 include(":app")

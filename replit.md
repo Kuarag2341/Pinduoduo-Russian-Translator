@@ -1,6 +1,7 @@
-# [Project name]
+# Pinduoduo Русский Браузер
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Нативное Android-приложение открывает мобильный Pinduoduo в WebView и переводит
+китайский DOM-текст на русский с помощью ML Kit на устройстве.
 
 ## Run & Operate
 
@@ -9,7 +10,15 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+
+### Native Android APK
+
+- Android source: `artifacts/pinduoduo-translator/native-android/`
+- Build locally with JDK 17, Gradle 8.9 and Android SDK 35:
+  `cd artifacts/pinduoduo-translator/native-android && gradle :app:assembleDebug`
+- Debug APK: `app/build/outputs/apk/debug/app-debug.apk`
+- GitHub Actions workflow: `.github/workflows/build.yml`
+- Source archive: `generated-artifacts/pinduoduo-russian-browser-source.zip`
 
 ## Stack
 
@@ -22,23 +31,36 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/pinduoduo-translator/native-android/` — installable Kotlin/Jetpack Compose app
+- `artifacts/pinduoduo-translator/app/` — Replit Expo preview for the same product
+- `.github/workflows/build.yml` — extracts the source ZIP and builds the debug APK
+- `artifacts/pinduoduo-translator/native-android/README.md` — Android features, build steps and limitations
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The Kotlin Android Gradle project is the source for the installable APK; the Expo
+  artifact is a Replit preview and does not replace the native WebView build.
+- Pinduoduo page text is translated through an origin-restricted JavaScript bridge;
+  screenshots, OCR, screen capture and accessibility overlays are not used.
+- ML Kit translates on-device after the language model is downloaded; translations
+  are stored in a local cache.
+- Product images, links, prices, numbers and currency tokens remain unchanged.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
-
-## User preferences
-
-_Populate as you build — explicit user instructions worth remembering across sessions._
+The browser opens the live Pinduoduo mobile site, translates readable Chinese DOM
+text into Russian, supports page navigation and preserves the marketplace's
+non-text content. Login, checkout, payment and ordering depend on Pinduoduo and
+cannot be guaranteed.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- GitHub Actions expects `pinduoduo-russian-browser-source.zip` at the repository
+  root and the workflow at `.github/workflows/build.yml`.
+- Rebuild the ZIP after changing native Android sources; the workflow extracts
+  only `artifacts/pinduoduo-translator/native-android/`.
+- APK builds and real WebView login/checkout flows have not been verified in this
+  Replit workspace because JDK, Gradle and Android SDK are unavailable here.
 
 ## Pointers
 

@@ -1,7 +1,7 @@
 kind = "mobile"
 previewPath = "/pinduoduo-translator/"
-title = "Pinduoduo Russian Translator"
-description = "Android companion app that captures the user's screen only after permission, recognizes Chinese text locally, translates it into Russian, and shows a touch-through overlay above Pinduoduo."
+title = "Pinduoduo Русский Браузер"
+description = "Native Android browser for the live Pinduoduo mobile site, with on-device Chinese-to-Russian translation of page text."
 version = "1.0.0"
 id = "artifacts/pinduoduo-translator"
 router = "expo-domain"
@@ -17,7 +17,7 @@ run = "pnpm --filter @workspace/pinduoduo-translator run dev"
 
 [services.production]
 build = [ "pnpm", "--filter", "@workspace/pinduoduo-translator", "run", "build" ]
-run = [ "pnpm", "--filter", "@workspace/pinduoduo-translator", "run", "serve" ]
+run = [ "node", "server/serve.js" ]
 
 [services.env]
 PORT = "22630"

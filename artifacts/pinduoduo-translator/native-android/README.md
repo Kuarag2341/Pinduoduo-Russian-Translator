@@ -1,37 +1,80 @@
-# Pinduoduo Russian Browser (Android)
+# Pinduoduo Русский Браузер — Android
 
-This native Android app opens Pinduoduo's live mobile shopping site in Android WebView. It translates Chinese DOM text in place with the on-device ML Kit Chinese-to-Russian model and the existing local translation cache. It does not create product, price, or translation mock data.
+Нативное Android-приложение открывает настоящий мобильный сайт Pinduoduo
+(`https://mobile.yangkeduo.com/`) внутри WebView и переводит читаемый китайский
+DOM-текст на русский с помощью Google ML Kit Translation на устройстве.
+Приложение не делает снимки экрана, не использует OCR и не рисует экранный overlay.
 
-## Features
+## Возможности
 
-- Starts at `https://mobile.yangkeduo.com/`, the live mobile shopping site.
-- WebView JavaScript, DOM storage, cookies, third-party cookies, and normal site navigation are enabled for shopping flows.
-- Back, forward, home, refresh, loading progress, current host, SSL errors, safe browsing, and external app links are handled.
-- A `MutationObserver` translates initial and dynamically inserted page text, including content added while scrolling; it also translates text-node-backed search placeholders and accessible labels.
-- The AndroidX WebMessageListener bridge is origin-restricted to Pinduoduo/Yangkeduo domains and accepts messages only from the main frame.
-- Existing ML Kit translation and local cache are used. The first translation may need an internet connection to download Google's Chinese-to-Russian model; later translation is on-device.
-- Numeric values, currencies, and common product specification tokens are preserved verbatim while surrounding Chinese text is translated. Images and non-text page elements are left untouched.
+- Навигация назад, вперёд, домой и обновить; индикатор загрузки и адрес сайта.
+- JavaScript, DOM storage, cookies и third-party cookies для работы сайта.
+- Перевод исходного текста и новых DOM-элементов через `MutationObserver`.
+- Китайский → русский через ML Kit (`zh` → `ru`) и постоянный локальный кэш.
+- Числа, цены, валюты и распространённые единицы измерения остаются в исходном виде.
+- Изображения и URL ссылок не изменяются; приложение не подменяет каталог или товары.
+- Внешние app-ссылки передаются Android. Перевод ограничен доменами Pinduoduo /
+  Yangkeduo и не выполняется на посторонних сайтах.
+- Для передачи текста используется ограниченный WebMessageListener: только основной
+  frame и доверенные домены маркетплейса.
 
-## Build locally
+Первое использование ML Kit может потребовать интернета для загрузки китайской и
+русской языковых моделей. После загрузки перевод текста выполняется на устройстве.
+Интернет также нужен для самого сайта и его динамического содержимого.
 
-Use Android Studio with JDK 17 and Android SDK 35. The project uses Android Gradle Plugin 8.7.3, which requires Gradle 8.9. If Gradle is installed:
+## Сборка debug APK локально
+
+Требуются JDK 17, Android SDK Platform 35, Build Tools 35.0.0 и Gradle 8.9.
+Android Gradle Plugin в проекте — 8.7.3. Откройте эту папку в Android Studio либо
+запустите команды из `native-android/`:
 
 ```sh
+gradle --version
 gradle :app:assembleDebug
 ```
 
-The debug APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
+Готовый APK:
+
+```text
+app/build/outputs/apk/debug/app-debug.apk
+```
 
 ## GitHub Actions
 
-`.github/workflows/android-apk.yml` installs JDK 17, Gradle 8.9, and Android SDK 35, builds the debug APK, and uploads it as a workflow artifact. Run it with **Actions → Android APK → Run workflow**, or push a change affecting the Android project.
+В корне GitHub-репозитория должны лежать:
 
-## Site access and limitations
+```text
+pinduoduo-russian-browser-source.zip
+.github/workflows/build.yml
+```
 
-- A network probe using an Android-style user agent received HTTP 200 and a populated shopping page from `mobile.yangkeduo.com`. This confirms the public endpoint responded to the probe; it is not a test inside Android WebView or on a phone.
-- `m.pinduoduo.com/ru/` currently serves corporate information, not the marketplace, so the app opens the live mobile shopping domain instead.
-- The site controls account availability, region, captcha/anti-bot checks, login, inventory, delivery, checkout, and accepted payment methods. This app cannot guarantee that Pinduoduo permits WebView login or that every order/payment path works; some flows may require Pinduoduo, WeChat, Alipay, or another installed app.
-- Translation applies to readable DOM text and selected text attributes only. Text embedded in images, canvas, video, or cross-origin iframes is not translated. Layout can shift when Russian text is longer, and the site may overwrite DOM changes during client-side rerenders.
-- If the installed Android System WebView lacks the origin-restricted message-listener feature, the real site still opens but automatic translation is disabled with a status message.
-- SSL failures are canceled rather than bypassed. Non-HTTP links such as payment/app schemes are handed to Android; behavior depends on installed apps and the destination.
-- This workspace has no local JDK, Gradle, Android SDK, emulator, or device, so the Android APK and actual WebView checkout/login flows cannot be tested here. GitHub Actions is configured but has not yet run.
+ZIP содержит `artifacts/pinduoduo-translator/native-android/` и копию workflow.
+Сам workflow должен быть размещён отдельно в `.github/workflows/build.yml`, чтобы
+GitHub Actions обнаружил его. Он распаковывает из ZIP только Android Gradle-проект,
+поэтому не перезаписывает workflow в репозитории.
+
+Запустите **Actions → Pinduoduo Russian Browser Android → Run workflow** или
+отправьте commit с ZIP/workflow. Сборка использует JDK 17, Gradle 8.9 и Android SDK
+35. Готовый APK сохраняется как Actions artifact
+`pinduoduo-russian-browser-debug-apk` по пути:
+
+```text
+artifacts/pinduoduo-translator/native-android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+При обновлении Android-кода пересоберите `pinduoduo-russian-browser-source.zip`,
+чтобы архив и GitHub Actions собирали одну и ту же версию.
+
+## Ограничения
+
+- Переводятся доступные DOM-текст и выбранные текстовые атрибуты. Текст внутри
+  изображений, canvas, видео и cross-origin iframe не распознаётся и не переводится.
+- Длина русского текста может менять вёрстку; сайт может заменить переведённый DOM
+  при собственном перерисовывании.
+- Возможность входа, работы CAPTCHA, оформления заказа, оплаты, доставки и внешних
+  приложений определяется Pinduoduo, регионом и установленными на телефоне
+  приложениями. Работа этих функций не гарантируется.
+- SSL-ошибки не обходятся. Если Android System WebView не поддерживает
+  ограниченный WebMessageListener, сайт откроется, но перевод будет отключён.
+- В рабочей среде Replit нет локальных JDK, Gradle и Android SDK, поэтому APK здесь
+  не собран. Сборку нужно подтвердить в GitHub Actions или Android Studio.

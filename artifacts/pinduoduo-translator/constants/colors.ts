@@ -1,5 +1,5 @@
 /**
- * Semantic design tokens for the mobile app.
+ * Semantic design tokens for the browser preview.
  *
  * These tokens mirror the naming conventions used in web artifacts (index.css)
  * so that multi-artifact projects share a cohesive visual identity.
@@ -49,8 +49,6 @@ const colors = {
     heroMuted: '#cfcecb',
     status: '#ffb46a',
     positive: '#31876a',
-    translatedTextColors: ['#ffffff', '#ffd36e', '#b8f0d2', '#ffa9a0', '#b9d9ff'],
-
     // Borders and input outlines
     border: '#e4dfd6',
     input: '#e4dfd6',
