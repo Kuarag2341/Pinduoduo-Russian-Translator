@@ -8,6 +8,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 
 class AndroidLocalizationTest {
     private val resourceLoader = javaClass.classLoader
@@ -93,5 +96,30 @@ class AndroidLocalizationTest {
         override fun writeLanguageTag(languageTag: String) {
             this.languageTag = languageTag
         }
+    }
+}
+
+@RunWith(RobolectricTestRunner::class)
+class AndroidLocalizationPersistenceTest {
+    @Test
+    fun `shared preferences locale survives facade recreation and unsupported tags`() {
+        val context = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences("pinduoduo_localizer_locale", 0)
+            .edit()
+            .clear()
+            .commit()
+
+        val firstLocalization = AndroidLocalization(context)
+        assertEquals("zh", firstLocalization.currentLanguage())
+        assertTrue(firstLocalization.selectLanguage("ru-RU"))
+        assertEquals("ru", firstLocalization.currentLanguage())
+
+        val recreatedLocalization = AndroidLocalization(context)
+        assertEquals("ru", recreatedLocalization.currentLanguage())
+        assertFalse(recreatedLocalization.selectLanguage("fr"))
+        assertEquals("ru", recreatedLocalization.currentLanguage())
+
+        val localizationAfterRejectedTag = AndroidLocalization(context)
+        assertEquals("ru", localizationAfterRejectedTag.currentLanguage())
     }
 }
